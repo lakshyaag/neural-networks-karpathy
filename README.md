@@ -15,3 +15,4 @@ This folder contains Jupyter notebooks that attempt to build a language model. T
 | Bi-gram model                | [lec2.ipynb](./makemore/lec2.ipynb) |
 | Multi-layer perceptron (MLP) | [lec3.ipynb](./makemore/lec3.ipynb) |
 | Batch normalization          | [lec4.ipynb](./makemore/lec4.ipynb) |
+| Backpropagation              | [lec5.ipynb](./makemore/lec5.ipynb) |
