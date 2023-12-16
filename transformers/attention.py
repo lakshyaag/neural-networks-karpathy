@@ -14,6 +14,7 @@ EVAL_INTERVAL = 300
 EVAL_ITERS = 200
 
 N_EMBED = 32
+N_HEADS = 4
 
 torch.manual_seed(1337)
 
@@ -72,6 +73,49 @@ def estimate_loss():
     return out
 
 
+# --- ATTENTION ---
+class Head(nn.Module):
+    """
+    One head of self-attention.
+    """
+
+    def __init__(self, head_size):
+        super().__init__()
+        self.query = nn.Linear(N_EMBED, head_size, bias=False)
+        self.key = nn.Linear(N_EMBED, head_size, bias=False)
+        self.value = nn.Linear(N_EMBED, head_size, bias=False)
+
+        self.register_buffer("tril", torch.tril(torch.ones(BLOCK_SIZE, BLOCK_SIZE)))
+
+    def forward(self, x):
+        B, T, C = x.shape
+
+        q = self.query(x)
+        k = self.key(x)
+        v = self.value(x)
+
+        weights = q @ k.transpose(-2, -1) * (C**-0.5)
+        weights = weights.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
+        weights = F.softmax(weights, dim=-1)
+
+        out = weights @ v
+        return out
+
+
+class MultiHeadAttention(nn.Module):
+    """
+    Multiple heads of self-attention in parallel.
+    """
+
+    def __init__(self, n_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(n_heads)])
+
+    def forward(self, x):
+        out = torch.cat([head(x) for head in self.heads], dim=-1)
+        return out
+
+
 # --- MODEL ---
 class BigramLanguageModel(nn.Module):
     def __init__(self):
@@ -79,6 +123,7 @@ class BigramLanguageModel(nn.Module):
 
         self.token_embedding_table = nn.Embedding(VOCAB_SIZE, N_EMBED)
         self.position_embedding_table = nn.Embedding(BLOCK_SIZE, N_EMBED)
+        self.sa_heads = MultiHeadAttention(N_HEADS, N_EMBED // N_HEADS)
         self.lm_head = nn.Linear(N_EMBED, VOCAB_SIZE)
 
     def forward(self, idx, targets=None):
@@ -87,6 +132,7 @@ class BigramLanguageModel(nn.Module):
         token_embedding = self.token_embedding_table(idx)
         position_embedding = self.position_embedding_table(torch.arange(T))
         x = token_embedding + position_embedding
+        x = self.sa_heads(x)
         logits = self.lm_head(x)
 
         if targets is None:
@@ -101,7 +147,8 @@ class BigramLanguageModel(nn.Module):
 
     def generate(self, idx, max_new_tokens):
         for _ in range(max_new_tokens):
-            logits, loss = self(idx)
+            idx_cond = idx[:, -BLOCK_SIZE:]
+            logits, loss = self(idx_cond)
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=-1)
 
@@ -132,4 +179,4 @@ for steps in range(MAX_ITERS):
 
 # --- GENERATION ---
 context = torch.zeros((1, 1), dtype=torch.long)
-rprint(decode(model.generate(context, 100)[0].tolist()))
+rprint(decode(model.generate(context, 1000)[0].tolist()))
