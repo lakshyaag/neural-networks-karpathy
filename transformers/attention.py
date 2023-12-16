@@ -7,7 +7,7 @@ import torch.nn.functional as F
 BATCH_SIZE = 32
 BLOCK_SIZE = 8
 
-MAX_ITERS = 3000
+MAX_ITERS = 5000
 LEARNING_RATE = 1e-3
 
 EVAL_INTERVAL = 300
@@ -15,6 +15,8 @@ EVAL_ITERS = 200
 
 N_EMBED = 32
 N_HEADS = 4
+N_BLOCKS = 4
+DROPOUT = 0.2
 
 torch.manual_seed(1337)
 
@@ -87,6 +89,8 @@ class Head(nn.Module):
 
         self.register_buffer("tril", torch.tril(torch.ones(BLOCK_SIZE, BLOCK_SIZE)))
 
+        self.dropout = nn.Dropout(DROPOUT)
+
     def forward(self, x):
         B, T, C = x.shape
 
@@ -97,6 +101,7 @@ class Head(nn.Module):
         weights = q @ k.transpose(-2, -1) * (C**-0.5)
         weights = weights.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
         weights = F.softmax(weights, dim=-1)
+        weights = self.dropout(weights)
 
         out = weights @ v
         return out
@@ -111,10 +116,12 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(n_heads)])
         self.proj = nn.Linear(N_EMBED, N_EMBED)
+        self.dropout = nn.Dropout(DROPOUT)
 
     def forward(self, x):
         out = torch.cat([head(x) for head in self.heads], dim=-1)
         out = self.proj(out)
+        out = self.dropout(out)
         return out
 
 
@@ -130,6 +137,7 @@ class FeedForward(nn.Module):
             nn.Linear(n_embed, scale_factor * n_embed),
             nn.ReLU(),
             nn.Linear(scale_factor * n_embed, n_embed),  # Projection layer
+            nn.Dropout(DROPOUT),
         )
 
     def forward(self, x):
@@ -147,9 +155,12 @@ class Block(nn.Module):
         self.sa_heads = MultiHeadAttention(n_heads, n_embed // n_heads)
         self.ffwd = FeedForward(n_embed, 4)
 
+        self.ln1 = nn.LayerNorm(n_embed)
+        self.ln2 = nn.LayerNorm(n_embed)
+
     def forward(self, x):
-        x = x + self.sa_heads(x)  # Residual connection + attention
-        x = x + self.ffwd(x)  # Residual connection + feed-forward
+        x = x + self.sa_heads(self.ln1(x))  # Residual connection + attention
+        x = x + self.ffwd(self.ln2(x))  # Residual connection + feed-forward
         return x
 
 
@@ -160,7 +171,9 @@ class BigramLanguageModel(nn.Module):
 
         self.token_embedding_table = nn.Embedding(VOCAB_SIZE, N_EMBED)
         self.position_embedding_table = nn.Embedding(BLOCK_SIZE, N_EMBED)
-        self.blocks = nn.Sequential(*[Block(N_EMBED, N_HEADS) for _ in range(3)])
+        self.blocks = nn.Sequential(
+            *[Block(N_EMBED, N_HEADS) for _ in range(3)] + [nn.LayerNorm(N_EMBED)]
+        )
         self.lm_head = nn.Linear(N_EMBED, VOCAB_SIZE)
 
     def forward(self, idx, targets=None):
@@ -196,6 +209,8 @@ class BigramLanguageModel(nn.Module):
 
 
 model = BigramLanguageModel()
+
+print(f"Model parameters: {sum(p.numel() for p in model.parameters())}")
 
 # --- TRAINING ---
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
