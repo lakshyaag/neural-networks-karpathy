@@ -110,10 +110,47 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, n_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(n_heads)])
+        self.proj = nn.Linear(N_EMBED, N_EMBED)
 
     def forward(self, x):
         out = torch.cat([head(x) for head in self.heads], dim=-1)
+        out = self.proj(out)
         return out
+
+
+# --- FEED FORWARD ---
+class FeedForward(nn.Module):
+    """
+    Feed-forward network with ReLU activation.
+    """
+
+    def __init__(self, n_embed, scale_factor=1):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embed, scale_factor * n_embed),
+            nn.ReLU(),
+            nn.Linear(scale_factor * n_embed, n_embed),  # Projection layer
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+# --- BLOCK (ATTENTION + FEED FORWARD) ---
+class Block(nn.Module):
+    """
+    One block of Transformer with communication followed by computation
+    """
+
+    def __init__(self, n_embed, n_heads):
+        super().__init__()
+        self.sa_heads = MultiHeadAttention(n_heads, n_embed // n_heads)
+        self.ffwd = FeedForward(n_embed, 4)
+
+    def forward(self, x):
+        x = x + self.sa_heads(x)  # Residual connection + attention
+        x = x + self.ffwd(x)  # Residual connection + feed-forward
+        return x
 
 
 # --- MODEL ---
@@ -123,7 +160,7 @@ class BigramLanguageModel(nn.Module):
 
         self.token_embedding_table = nn.Embedding(VOCAB_SIZE, N_EMBED)
         self.position_embedding_table = nn.Embedding(BLOCK_SIZE, N_EMBED)
-        self.sa_heads = MultiHeadAttention(N_HEADS, N_EMBED // N_HEADS)
+        self.blocks = nn.Sequential(*[Block(N_EMBED, N_HEADS) for _ in range(3)])
         self.lm_head = nn.Linear(N_EMBED, VOCAB_SIZE)
 
     def forward(self, idx, targets=None):
@@ -132,7 +169,7 @@ class BigramLanguageModel(nn.Module):
         token_embedding = self.token_embedding_table(idx)
         position_embedding = self.position_embedding_table(torch.arange(T))
         x = token_embedding + position_embedding
-        x = self.sa_heads(x)
+        x = self.blocks(x)
         logits = self.lm_head(x)
 
         if targets is None:
