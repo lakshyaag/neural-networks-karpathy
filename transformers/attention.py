@@ -25,6 +25,7 @@ with open("./input.txt", encoding="utf-8") as f:
     text = f.read()
 rprint(f"Text length: {len(text)}")
 
+# --- TOKENIZATION ---
 chars = sorted(list(set(text)))
 VOCAB_SIZE = len(chars)
 
@@ -172,7 +173,8 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table = nn.Embedding(VOCAB_SIZE, N_EMBED)
         self.position_embedding_table = nn.Embedding(BLOCK_SIZE, N_EMBED)
         self.blocks = nn.Sequential(
-            *[Block(N_EMBED, N_HEADS) for _ in range(3)] + [nn.LayerNorm(N_EMBED)]
+            *[Block(N_EMBED, N_HEADS) for _ in range(N_BLOCKS)]
+            + [nn.LayerNorm(N_EMBED)]
         )
         self.lm_head = nn.Linear(N_EMBED, VOCAB_SIZE)
 

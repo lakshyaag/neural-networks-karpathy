@@ -1,4 +1,7 @@
 transformers/BBC News Summary/
+
+.obsidian/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
